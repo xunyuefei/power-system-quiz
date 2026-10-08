@@ -5,6 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>⚡ 华电《电力系统分析》全真题库·智能刷题系统</title>
   <meta name="description" content="华北电力大学《电力系统分析》历年期末试卷与历年考研真题选择题、判断题智能沉浸式刷题平台">
+
+  <!-- PWA & Mobile Web App Meta Tags -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0a0e17">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="电分刷题宝">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+
   <!-- Google Fonts (with graceful system fallback) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1793,6 +1806,7 @@
 
     <!-- Top Action Icons -->
     <div class="nav-actions">
+      <button class="icon-btn" id="topInstallBtn" title="安装为独立桌面/手机应用 (PWA)" style="display: none;" onclick="triggerPwaInstall()">📲</button>
       <button class="icon-btn" title="全局搜索 (快捷键 /)" onclick="openSearchModal()">🔍</button>
       <button class="icon-btn" title="个性化设置与数据同步" onclick="openSettingsModal()">⚙️</button>
     </div>
@@ -2339,7 +2353,26 @@
         </div>
       </div>
 
-      <!-- 4. 危险区 -->
+      <!-- 4. PWA 离线 App 与桌面安装 -->
+      <div style="border-top: 1px solid var(--border-subtle); padding-top: 16px; margin-bottom: 20px;">
+        <label style="font-size: 0.88rem; font-weight: 600; display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+          <span>📲 离线 App / 安装到桌面</span>
+          <span id="pwaStatusBadge" style="font-size: 0.75rem; color: var(--success); background: var(--success-bg); padding: 2px 8px; border-radius: 999px;">离线就绪 ⚡</span>
+        </label>
+        <p style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 12px;">
+          已配置 PWA 离线缓存引擎，支持无网络（地铁/飞行模式）畅刷，可直接安装至手机主屏幕或电脑桌面，畅享全屏原生体验。
+        </p>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn-nav" id="btnPwaInstallModal" style="flex: 1; border-color: rgba(56, 189, 248, 0.4); color: var(--primary);" onclick="triggerPwaInstall()">
+            📥 添加到主屏幕 / 安装
+          </button>
+          <button class="btn-nav" style="flex: 1; font-size: 0.82rem;" onclick="checkPwaUpdate()">
+            🔄 检查题库缓存更新
+          </button>
+        </div>
+      </div>
+
+      <!-- 5. 危险区 -->
       <div style="border-top: 1px solid var(--border-subtle); padding-top: 16px; margin-bottom: 22px;">
         <label style="font-size: 0.88rem; font-weight: 600; color: var(--danger); display: block; margin-bottom: 8px;">危险区</label>
         <button class="btn-nav" style="width: 100%; border-color: var(--danger-border); color: var(--danger); justify-content: center;" onclick="confirmResetAllProgress()">
@@ -2598,6 +2631,18 @@
       renderDashboard();
       setupKeyboardShortcuts();
       initTouchGestures();
+      registerServiceWorker();
+
+      // Handle PWA shortcut URL parameter (?mode=sequential / wrong / exam)
+      const urlParams = new URLSearchParams(window.location.search);
+      const modeParam = urlParams.get('mode');
+      if (modeParam && ['sequential', 'random', 'wrong', 'bookmarks', 'exam'].includes(modeParam)) {
+        if (modeParam === 'exam') {
+          openExamSetupModal();
+        } else {
+          startPracticeMode(modeParam);
+        }
+      }
     });
 
     function initQuestionsData() {
@@ -3706,6 +3751,104 @@
       toastTimeout = setTimeout(() => {
         toast.classList.remove('show');
       }, 2400);
+    }
+
+    /* ==========================================================================
+       PWA & SERVICE WORKER CONTROLLER
+       ========================================================================== */
+    let deferredPrompt = null;
+    let swRegistration = null;
+
+    function registerServiceWorker() {
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js')
+            .then((reg) => {
+              swRegistration = reg;
+              console.log('[PWA] Service Worker 注册成功:', reg.scope);
+              updatePwaBadge('离线就绪 ⚡');
+
+              reg.addEventListener('updatefound', () => {
+                const newWorker = reg.installing;
+                if (newWorker) {
+                  newWorker.addEventListener('statechange', () => {
+                    if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                      showToast('发现新版题库与功能！重新加载后生效', '🚀');
+                    }
+                  });
+                }
+              });
+            })
+            .catch((err) => {
+              console.warn('[PWA] Service Worker 注册失败:', err);
+              updatePwaBadge('离线受限');
+            });
+        });
+      } else {
+        updatePwaBadge('浏览器不支持SW');
+      }
+    }
+
+    // Capture install prompt event for Chrome/Edge/Android
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      const topBtn = document.getElementById('topInstallBtn');
+      if (topBtn) topBtn.style.display = 'inline-flex';
+      updatePwaBadge('可安装到桌面 📥');
+    });
+
+    window.addEventListener('appinstalled', () => {
+      deferredPrompt = null;
+      const topBtn = document.getElementById('topInstallBtn');
+      if (topBtn) topBtn.style.display = 'none';
+      updatePwaBadge('独立App运行 ✨');
+      showToast('已成功安装为独立应用！', '🎉');
+    });
+
+    // Check if running in standalone mode (already installed as PWA)
+    if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
+      updatePwaBadge('独立App模式 ✨');
+    }
+
+    function updatePwaBadge(text) {
+      const badge = document.getElementById('pwaStatusBadge');
+      if (badge) badge.textContent = text;
+    }
+
+    function triggerPwaInstall() {
+      if (deferredPrompt) {
+        deferredPrompt.prompt();
+        deferredPrompt.userChoice.then((choiceResult) => {
+          if (choiceResult.outcome === 'accepted') {
+            showToast('正在添加到主屏幕...', '📱');
+          }
+          deferredPrompt = null;
+        });
+      } else {
+        // Detect iOS device
+        const isIos = /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
+        if (isIos) {
+          alert('🍎 iOS 快捷安装步骤：\n1. 点击 Safari 底部中间的「分享」按钮（方框向上箭头）\n2. 下滑选择「添加到主屏幕」即可！');
+        } else if (window.matchMedia('(display-mode: standalone)').matches) {
+          showToast('当前已在独立 App 中运行！', '✅');
+        } else {
+          alert('💻 安装提示：\n请点击浏览器地址栏右侧的「安装应用」图标（或浏览器菜单 ->「安装 华电电分刷题宝」/「添加到主屏幕」）');
+        }
+      }
+    }
+
+    function checkPwaUpdate() {
+      if (swRegistration) {
+        showToast('正在检查题库缓存更新...', '🔍');
+        swRegistration.update().then(() => {
+          showToast('题库离线缓存已更新！', '✅');
+        }).catch(() => {
+          showToast('处于纯离线状态，使用本地缓存', '📶');
+        });
+      } else {
+        showToast('Service Worker 初始化中...', '⏳');
+      }
     }
   </script>
 </body>
