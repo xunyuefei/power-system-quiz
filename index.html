@@ -5050,7 +5050,9 @@
                 <div class="wrong-history-desc">
                   你上次做错选择了：<strong class="user-wrong-tag">${prevProg.selected.join(', ')} ❌</strong>
                   <span class="history-sep">|</span>
-                  标准答案：<strong class="actual-correct-tag">${correctAnsArray.join(', ')} ✔️</strong>
+                  标准答案：${correctAnsArray.length > 0 
+                    ? `<strong class="actual-correct-tag">${correctAnsArray.join(', ')} ✔️</strong>` 
+                    : `<strong class="user-wrong-tag" style="background:rgba(245,158,11,0.15); border-color:rgba(245,158,11,0.5); color:#fbbf24;">待官方补充 ⏳</strong>`}
                 </div>
               </div>
               <button class="btn-toggle-wrong-exp" type="button" onclick="toggleWrongExplanation()">📖 查看解析</button>
